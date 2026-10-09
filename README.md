@@ -1,82 +1,21 @@
-# Big B's BBQ Pricing App - GitHub/Vercel Package
+# Big B's BBQ Pricing App - Vercel Package v1.4
 
-Upload the CONTENTS of this folder to the root of the GitHub repository connected to Vercel.
+Package detection now uses all available product text:
+- title
+- description/snippet
+- delivery/extra text
+- price/selling-unit wording
 
-Repository structure:
+Examples:
+- Title: Chicken Breast Fillet
+  Description: 10 lb case
+  -> 10 lb case
 
-```text
-api/
-  health.js
-  prices.js
-index.html
-package.json
-vercel.json
-.gitignore
-.env.example
-README.md
-```
+- Title: Boneless Chicken Breast Portions
+  Description: 40 pieces, 4 oz each
+  -> 40 x 4 oz pieces
 
-## Vercel Environment Variable
+- Price: $2.49/lb
+  -> Sold by the pound
 
-In Vercel:
-
-Settings -> Environment Variables
-
-Create:
-
-```text
-SERPER_API_KEY
-```
-
-Paste your Serper API key as the value.
-
-Do not upload your real API key to GitHub.
-
-## After uploading to GitHub
-
-Vercel should redeploy automatically.
-
-Test the homepage:
-
-```text
-https://YOUR-PROJECT.vercel.app
-```
-
-Then test:
-
-```text
-https://YOUR-PROJECT.vercel.app/api/health
-```
-
-You should receive JSON with:
-
-```json
-{
-  "ok": true,
-  "service": "Big B's BBQ Pricing API"
-}
-```
-
-## Pricing endpoint
-
-The Catering Business Manager will eventually send pricing requests to:
-
-```text
-POST https://YOUR-PROJECT.vercel.app/api/prices
-```
-
-Example request:
-
-```json
-{
-  "location": "South Carolina, United States",
-  "preferredStores": ["Sam's Club", "Walmart", "CHEF'STORE", "Costco"],
-  "items": [
-    {
-      "id": 1,
-      "name": "Pork Belly Burnt Ends",
-      "searchIngredient": "Pork belly"
-    }
-  ]
-}
-```
+Keep SERPER_API_KEY only in Vercel Environment Variables.

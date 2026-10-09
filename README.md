@@ -1,21 +1,3 @@
-# Big B's BBQ Pricing App - Vercel Package v1.4
+# Big B's BBQ Pricing API v1.7
 
-Package detection now uses all available product text:
-- title
-- description/snippet
-- delivery/extra text
-- price/selling-unit wording
-
-Examples:
-- Title: Chicken Breast Fillet
-  Description: 10 lb case
-  -> 10 lb case
-
-- Title: Boneless Chicken Breast Portions
-  Description: 40 pieces, 4 oz each
-  -> 40 x 4 oz pieces
-
-- Price: $2.49/lb
-  -> Sold by the pound
-
-Keep SERPER_API_KEY only in Vercel Environment Variables.
+Normalizes retailer pricing into a unit cost and calculates Big B's estimated cost per person. For meats, cooked serving quantity is converted to raw purchase quantity using cooked yield. Ambiguous package results are not marked ready for costing.

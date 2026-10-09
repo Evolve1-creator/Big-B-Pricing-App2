@@ -1,6 +1,6 @@
 {
-  "name": "big-b-pricing-app",
-  "version": "1.7.0",
+  "name": "big-b-pricing-clean",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "engines": {

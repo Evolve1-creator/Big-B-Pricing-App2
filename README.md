@@ -1,4 +1,4 @@
-# Big B's Direct Store Pricing API v2.1
+# Big B's Direct Store Pricing API v2.2
 
 This is a clean direct-retailer version.
 
@@ -8,7 +8,6 @@ The backend does not use Google Shopping or Serper.
 
 It searches these retailer websites directly:
 
-- Walmart
 - CHEF'STORE
 - Costco
 - Food Lion
@@ -39,3 +38,12 @@ When the retailer provides enough information, the service returns:
 
 The Catering Business Manager calculates Big B's cost per person using the saved
 serving quantity and cooked yield.
+
+
+## v2.2 fixes
+
+- Honors the `preferredStores` array sent by the Catering Business Manager.
+- Only Costco, CHEF'STORE, and Food Lion are configured.
+- Returns flattened fields expected by the front end: `totalQuantity`, `totalUnit`, `unitCost`, `unitCostUnit`, `costingReady`, and `costingReason`.
+- Expanded package parsing for multipacks, count packs, pounds, ounces, fluid ounces, gallons, quarts, bags, boxes, cans, bottles, jugs, cartons, and foodservice pack notation.
+- Preserves package descriptions such as `6 x #10 cans` without inventing a weight that is not stated by the retailer.

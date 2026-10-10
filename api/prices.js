@@ -4,11 +4,6 @@ const MAX_RESULTS_PER_STORE = 4;
 
 const STORES = [
   {
-    name:"Walmart",
-    host:"walmart.com",
-    searchUrl:q=>`https://www.walmart.com/search?q=${encodeURIComponent(q)}`
-  },
-  {
     name:"CHEF'STORE",
     host:"chefstore.com",
     searchUrl:q=>`https://www.chefstore.com/search/fullsearch/?q=${encodeURIComponent(q)}`
@@ -24,6 +19,20 @@ const STORES = [
     searchUrl:q=>`https://foodlion.com/product-search/${encodeURIComponent(q).replace(/%20/g,"-")}`
   }
 ];
+
+function normalizeStoreName(s){
+  const v=String(s||"").toLowerCase().replace(/[’']/g,"'").replace(/[^a-z0-9]+/g," ").trim();
+  if(v.includes("costco")) return "Costco";
+  if(v.includes("chefstore")||v.includes("chef store")||v.includes("us foods chef store")||v.includes("us food chef store")) return "CHEF'STORE";
+  if(v.includes("food lion")||v.includes("foodlion")) return "Food Lion";
+  return "";
+}
+function requestedStores(body){
+  const wanted=Array.isArray(body?.preferredStores)?body.preferredStores.map(normalizeStoreName).filter(Boolean):[];
+  if(!wanted.length)return STORES;
+  const set=new Set(wanted);
+  return STORES.filter(s=>set.has(s.name));
+}
 
 function cors(res){
   res.setHeader("Access-Control-Allow-Origin","*");
@@ -150,47 +159,78 @@ function normUnit(u){
   if(["ea","each","count","ct","piece","pieces","pcs"].includes(u))return "each";
   if(["gal","gallon","gallons"].includes(u))return "gal";
   if(["qt","quart","quarts"].includes(u))return "qt";
+  if(["fl oz","floz","fluid ounce","fluid ounces"].includes(u))return "fl oz";
   return u;
 }
 function parsePackage(title,desc,raw,priceText){
   const all=cleanText(`${title} ${desc} ${raw}`);
   let m;
+  const U='(?:fl\\.?\\s*oz|fluid ounces?|gallons?|gal|quarts?|qt|lbs?|pounds?|oz|ounces?)';
 
-  m=all.match(/\b(\d+)\s*(pieces?|pcs|portions?|breasts?|fillets?|links?|patties|rolls?|buns?|bottles?|cans?)\b[^0-9]{0,24}(\d+(?:\.\d+)?)\s*(lbs?|pounds?|oz|ounces?)\s*(?:each|ea)?\b/i);
+  // e.g. "2 x 12 count", "3 x 24 ct"
+  m=all.match(/\b(\d+)\s*[xX×]\s*(\d+(?:\.\d+)?)\s*(?:ct|count|each|ea|pieces?|pcs|rolls?|buns?|bottles?|cans?)\b/i);
+  if(m){
+    const count=Number(m[1]), eachQty=Number(m[2]);
+    return {label:`${count} x ${eachQty} count`,quantity:count*eachQty,unit:"each",count,eachQuantity:eachQty,eachUnit:"each",confident:true};
+  }
+
+  // e.g. "6 cans, 6 lb each", "24 bottles 16 oz each"
+  m=all.match(new RegExp(`\\b(\\d+)\\s*(pieces?|pcs|portions?|breasts?|fillets?|links?|patties|rolls?|buns?|bottles?|cans?|bags?|boxes?|packs?|jugs?)\\b[^0-9]{0,32}(\\d+(?:\\.\\d+)?)\\s*(${U})\\s*(?:each|ea)?\\b`,'i'));
   if(m){
     const count=Number(m[1]), eachQty=Number(m[3]), unit=normUnit(m[4]);
     return {label:`${count} x ${eachQty} ${unit} ${m[2].toLowerCase()}`,quantity:count*eachQty,unit,count,eachQuantity:eachQty,eachUnit:unit,confident:true};
   }
-  m=all.match(/\((\d+)\)\s*(\d+(?:\.\d+)?)\s*(lbs?|pounds?|oz|ounces?)\b/i);
+
+  // e.g. "(16) 6 oz"
+  m=all.match(new RegExp(`\\((\\d+)\\)\\s*(\\d+(?:\\.\\d+)?)\\s*(${U})\\b`,'i'));
   if(m){
     const count=Number(m[1]), eachQty=Number(m[2]), unit=normUnit(m[3]);
     return {label:`${count} x ${eachQty} ${unit}`,quantity:count*eachQty,unit,count,eachQuantity:eachQty,eachUnit:unit,confident:true};
   }
-  m=all.match(/\b(\d+)\s*[xX×]\s*(\d+(?:\.\d+)?)\s*(lbs?|pounds?|oz|ounces?)\b/i);
+
+  // e.g. "16 x 6 oz"
+  m=all.match(new RegExp(`\\b(\\d+)\\s*[xX×]\\s*(\\d+(?:\\.\\d+)?)\\s*(${U})\\b`,'i'));
   if(m){
     const count=Number(m[1]), eachQty=Number(m[2]), unit=normUnit(m[3]);
     return {label:`${count} x ${eachQty} ${unit}`,quantity:count*eachQty,unit,count,eachQuantity:eachQty,eachUnit:unit,confident:true};
   }
-  m=all.match(/\b(\d+)\s*\/\s*(\d+(?:\.\d+)?)\s*(lbs?|pounds?|oz|ounces?)\b/i);
+
+  // foodservice notation like "6/5 lb" = six 5-lb units
+  m=all.match(new RegExp(`\\b(\\d+)\\s*\\/\\s*(\\d+(?:\\.\\d+)?)\\s*(${U})\\b`,'i'));
   if(m){
     const count=Number(m[1]), eachQty=Number(m[2]), unit=normUnit(m[3]);
     return {label:`${count} x ${eachQty} ${unit}`,quantity:count*eachQty,unit,count,eachQuantity:eachQty,eachUnit:unit,confident:true};
   }
-  m=all.match(/\b(\d+)\s*(?:ct|count|pieces?|pcs|pack)\b/i);
+
+  // foodservice #10 can notation. Preserve the physical package detail without inventing weight.
+  m=all.match(/\b(\d+)\s*(?:x|\/)?\s*#?\s*(\d+)\s*cans?\b/i);
+  if(m){
+    const count=Number(m[1]), canSize=Number(m[2]);
+    return {label:`${count} x #${canSize} cans`,quantity:count,unit:"each",count,containerSize:`#${canSize}`,confident:true};
+  }
+  m=all.match(/\b#\s*(\d+)\s*can\b/i);
+  if(m)return {label:`#${Number(m[1])} can`,quantity:1,unit:"each",count:1,containerSize:`#${Number(m[1])}`,confident:true};
+
+  // standard count packs
+  m=all.match(/\b(\d+(?:\.\d+)?)\s*(?:ct|count|pieces?|pcs)\b/i);
   if(m)return {label:`${Number(m[1])} count`,quantity:Number(m[1]),unit:"each",count:Number(m[1]),confident:true};
-  m=all.match(/\b(?:case|pack|box|bag)\s+of\s+(\d+)\b/i);
+  m=all.match(/\b(?:case|pack|box|bag|carton)\s+of\s+(\d+(?:\.\d+)?)\b/i);
   if(m)return {label:`${Number(m[1])} count`,quantity:Number(m[1]),unit:"each",count:Number(m[1]),confident:true};
-  m=all.match(/\b(\d+(?:\.\d+)?)\s*(lbs?|pounds?|oz|ounces?)\b(?:\s+(case|bag|box|pack|tray))?/i);
+
+  // a single physical package size: 5 lb bag, 128 fl oz jug, 1 gallon bottle, etc.
+  m=all.match(new RegExp(`\\b(\\d+(?:\\.\\d+)?)\\s*(${U})\\b(?:\\s+(case|bag|box|pack|tray|can|bottle|jug|carton))?`,'i'));
   if(m){
-    const quantity=Number(m[1]),unit=normUnit(m[2]);
-    return {label:`${quantity} ${unit}${m[3]?" "+m[3].toLowerCase():""}`,quantity,unit,confident:true};
+    const quantity=Number(m[1]),unit=normUnit(m[2]),container=m[3]?m[3].toLowerCase():"";
+    return {label:`${quantity} ${unit}${container?" "+container:""}`,quantity,unit,count:1,eachQuantity:quantity,eachUnit:unit,container,confident:true};
   }
 
   const sell=cleanText(`${all} ${priceText}`).toLowerCase();
-  if(/\/\s*lb\b|per\s+(?:lb|pound)\b|price\s+per\s+lb\b/.test(sell))
-    return {label:"Sold by the pound",quantity:1,unit:"lb",sellingUnit:"lb",confident:true};
+  if(/\/\s*lb\b|per\s+(?:lb|pound)\b|price\s+per\s+lb\b|\blb\s*price\b/.test(sell))
+    return {label:"Sold by the pound",quantity:1,unit:"lb",sellingUnit:"lb",count:1,confident:true};
   if(/\/\s*(?:ea|each)\b|per\s+(?:ea|each)\b/.test(sell))
-    return {label:"1 each",quantity:1,unit:"each",sellingUnit:"each",confident:true};
+    return {label:"1 each",quantity:1,unit:"each",sellingUnit:"each",count:1,confident:true};
+  if(/\/\s*oz\b|per\s+(?:oz|ounce)\b/.test(sell))
+    return {label:"Sold by the ounce",quantity:1,unit:"oz",sellingUnit:"oz",count:1,confident:true};
   return {label:"Needs package review",quantity:null,unit:null,confident:false};
 }
 function productForm(title,desc,raw){
@@ -211,9 +251,25 @@ function productForm(title,desc,raw){
   add("Smoked",/\bsmoked\b/);
   return f.length?f.join(" / "):"Not stated";
 }
-function unitCost(price,pkg){
-  if(price==null||!pkg?.confident||!pkg.quantity||!pkg.unit)return null;
-  return {amount:price/pkg.quantity,unit:pkg.unit};
+function costingFields(price,pkg){
+  if(price==null||!pkg?.confident||!pkg.quantity||!pkg.unit){
+    return {
+      totalQuantity:pkg?.quantity??null,
+      totalUnit:pkg?.unit??null,
+      unitCost:null,
+      unitCostUnit:pkg?.unit??null,
+      costingReady:false,
+      costingReason:"Package quantity or unit of measure could not be determined"
+    };
+  }
+  return {
+    totalQuantity:pkg.quantity,
+    totalUnit:pkg.unit,
+    unitCost:price/pkg.quantity,
+    unitCostUnit:pkg.unit,
+    costingReady:true,
+    costingReason:""
+  };
 }
 function relevance(query,title,desc){
   const q=cleanText(query).toLowerCase();
@@ -249,7 +305,7 @@ async function enrichProduct(base,store){
     package:pkg,
     packageDescription:pkg.label,
     productForm:productForm(product.title,product.description,product.raw),
-    unitCost:unitCost(product.price,pkg)
+    ...costingFields(product.price,pkg)
   };
 }
 async function searchStore(store,query){
@@ -292,7 +348,7 @@ async function searchStore(store,query){
             const pkg=parsePackage(enriched.title,enriched.description,`${enriched.raw} ${text.slice(0,5000)}`,enriched.priceText);
             enriched.package=pkg;
             enriched.packageDescription=pkg.label;
-            enriched.unitCost=unitCost(enriched.price,pkg);
+            Object.assign(enriched,costingFields(enriched.price,pkg));
           }
         }
       }
@@ -328,9 +384,12 @@ export default async function handler(req,res){
   if(!items.length)return res.status(400).json({error:"No items provided"});
   if(items.length>MAX_ITEMS)return res.status(400).json({error:`Maximum ${MAX_ITEMS} items per request`});
 
+  const selectedStores=requestedStores(body);
+  if(!selectedStores.length)return res.status(400).json({error:"No approved stores selected"});
+
   const cleaned=items.map(i=>({id:i.id??null,name:cleanText(i.name),searchIngredient:cleanText(i.searchIngredient||i.name)}));
   const results=await limited(cleaned,async item=>{
-    const stores=await Promise.all(STORES.map(s=>searchStore(s,item.searchIngredient)));
+    const stores=await Promise.all(selectedStores.map(s=>searchStore(s,item.searchIngredient)));
     return {
       id:item.id,name:item.name,searchIngredient:item.searchIngredient,ok:true,
       stores,
@@ -340,11 +399,11 @@ export default async function handler(req,res){
 
   return res.status(200).json({
     ok:true,
-    version:"2.1.0",
+    version:"2.2.0",
     sourceMode:"direct-retailer-sites",
     checkedAt:new Date().toISOString(),
     location:cleanText(body.location||DEFAULT_LOCATION),
-    approvedStores:STORES.map(s=>s.name),
+    approvedStores:selectedStores.map(s=>s.name),
     results
   });
 }
